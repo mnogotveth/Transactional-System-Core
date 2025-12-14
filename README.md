@@ -84,17 +84,30 @@ Content-Type: application/json
 
 ## Запуск через Docker Compose
 
-1. Убедитесь, что Docker и Docker Compose установлены.
-2. Скопируйте `.env.example` → `.env` (можно оставить значения по умолчанию, Compose перезапишет `POSTGRES_HOST`, `CELERY_BROKER_URL`, `CELERY_RESULT_BACKEND`).
-3. Соберите и поднимите стек:
+1. Подготовьте переменные окружения:
+   ```bash
+   cp .env.example .env
+   ```
+   Значения Postgres/Redis можно оставить дефолтными — Compose сам проставит `POSTGRES_HOST`, `CELERY_BROKER_URL` и `CELERY_RESULT_BACKEND` внутри контейнеров.
+2. Соберите и запустите стек:
    ```bash
    docker compose up --build
    ```
-   - сервис `web` запускает Django (`python manage.py runserver 0.0.0.0:8000`);
-   - `worker` поднимает Celery;
-   - `db` — PostgreSQL 15;
-   - `redis` — брокер/хранилище Celery.
-   При старте миграции выполняются один раз в контейнере `web` (worker их пропускает через `MIGRATE_ON_START=false`).
-4. После старта API доступно на `http://127.0.0.1:8000/api/transfer`. Миграции выполняются автоматически в entrypoint, поэтому дополнительных действий не требуется.
+   Поднимаются четыре сервиса: `db` (PostgreSQL 15), `redis`, `web` (Django runserver) и `worker` (Celery). EntryPoint `web` ждёт БД и выполняет миграции, у `worker` миграции отключены (`MIGRATE_ON_START=false`), поэтому коллизий нет.
+3. После старта API доступно на `http://127.0.0.1:8000/api/transfer`, а исходный код монтируется внутрь контейнеров (`.:/app`), поэтому правки из IDE сразу попадают в приложение.
+4. Полезные команды:
+   ```bash
+   docker compose exec web python manage.py shell    # открыть Django shell
+   docker compose exec web sh -c "pip install requests >/dev/null && python scripts/stress.py"  # стресс-тест
+   docker compose logs -f worker                     # логи Celery
+   curl -X POST http://127.0.0.1:8000/api/transfer \
+     -H "Content-Type: application/json" \
+     -d '{"source_wallet_id":2,"destination_wallet_id":3,"amount":"1500.00"}'
+   ```
+5. Остановка и очистка:
+   ```bash
+   docker compose down        # остановить контейнеры
+   docker compose down -v     # остановить и удалить volume с данными Postgres
+   ```
 
-Горячая перезагрузка кода сохраняется за счёт монтирования текущей директории в контейнеры `web` и `worker`. Для остановки нажмите `Ctrl+C` и выполните `docker compose down` (по желанию добавьте `-v`, чтобы удалить volume БД).*** End Patch***}]]
+Этот сценарий покрывает все шаги демонстрации: создание кошельков, одиночный перевод с комиссией, запуск параллельного стресс-теста и просмотр уведомлений в Celery.
